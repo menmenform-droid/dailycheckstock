@@ -397,11 +397,11 @@ function renderEntry() {
                     const line = lines[item.id] || {};
                     return `
                       <tr data-entry-item-id="${escapeAttr(item.id)}">
-                        <td>${index + 1}</td>
-                        <td>${escapeHTML(item.itemNo)}</td>
-                        <td>${escapeHTML(item.description)}</td>
-                        <td><input data-qty="system" type="number" step="any" inputmode="decimal" value="${escapeAttr(formatQty(line.systemStock))}"></td>
-                        <td><input data-qty="physical" type="number" step="any" inputmode="decimal" value="${escapeAttr(formatQty(line.physicalStock))}"></td>
+                        <td data-label="No">${index + 1}</td>
+                        <td data-label="Item No.">${escapeHTML(item.itemNo)}</td>
+                        <td data-label="Description">${escapeHTML(item.description)}</td>
+                        <td data-label="System Stock"><input data-qty="system" type="number" step="any" inputmode="decimal" value="${escapeAttr(formatQty(line.systemStock))}" required></td>
+                        <td data-label="Physical Stock"><input data-qty="physical" type="number" step="any" min="0" inputmode="decimal" value="${escapeAttr(formatQty(line.physicalStock))}" required></td>
                       </tr>
                     `;
                   })
@@ -478,7 +478,14 @@ function renderReports() {
               ${renderStatusTable(activeBranches, reportsByBranch)}
             </aside>
             <div>
-              ${reportRows.length ? renderReportTable(reportRows, visibleBranches, reportsByBranch, branchFilter !== "all") : renderEmpty("No items available for this report.")}
+              ${
+                reportRows.length
+                  ? `
+                    ${renderReportTable(reportRows, visibleBranches, reportsByBranch, branchFilter !== "all")}
+                    ${renderMobileReportCards(reportRows, visibleBranches, reportsByBranch, branchFilter !== "all")}
+                  `
+                  : renderEmpty("No items available for this report.")
+              }
             </div>
           </div>
         </div>
@@ -521,22 +528,42 @@ function renderReportTable(rows, branches, reportsByBranch, showDifference = fal
   }
 
   const branchColSpan = showDifference ? 3 : 2;
+  const leftColumnWidths = getReportLeftColumnWidths(rows);
+  const branchColumnPlans = branches.map((branch) => getReportBranchColumnPlan(branch.name, showDifference));
+  const branchColumnsWidth = branchColumnPlans.reduce((total, plan) => total + plan.totalWidth, 0);
+  const tableWidth = leftColumnWidths.no + leftColumnWidths.item + leftColumnWidths.description + branchColumnsWidth;
+  const stickyItemLeft = leftColumnWidths.no;
+  const stickyDescriptionLeft = leftColumnWidths.no + leftColumnWidths.item;
 
   return `
-    <div class="report-table-wrap">
-      <table class="report-table">
+    <div class="report-table-wrap desktop-report-table">
+      <table class="report-table" style="width: ${tableWidth}px; --no-col-width: ${leftColumnWidths.no}px; --item-col-width: ${leftColumnWidths.item}px; --desc-col-width: ${leftColumnWidths.description}px; --item-col-left: ${stickyItemLeft}px; --desc-col-left: ${stickyDescriptionLeft}px;">
+        <colgroup>
+          <col style="width: ${leftColumnWidths.no}px;">
+          <col style="width: ${leftColumnWidths.item}px;">
+          <col style="width: ${leftColumnWidths.description}px;">
+          ${branchColumnPlans
+            .map((plan) => plan.widths.map((width) => `<col style="width: ${width}px;">`).join(""))
+            .join("")}
+        </colgroup>
         <thead>
           <tr>
             <th class="sticky-col col-no" rowspan="2">No</th>
             <th class="sticky-col col-item" rowspan="2">Item No.</th>
             <th class="sticky-col col-desc" rowspan="2">Description</th>
-            ${branches.map((branch) => `<th class="branch-head" colspan="${branchColSpan}">${escapeHTML(branch.name)}</th>`).join("")}
-          </tr>
-          <tr>
             ${branches
               .map(
-                () =>
-                  `<th class="stock-col">system</th><th class="stock-col">phy</th>${showDifference ? `<th class="stock-col">different</th>` : ""}`
+                (branch, index) =>
+                  `<th class="branch-head" colspan="${branchColSpan}" style="min-width: ${branchColumnPlans[index].totalWidth}px;">${escapeHTML(branch.name)}</th>`
+              )
+              .join("")}
+          </tr>
+          <tr>
+            ${branchColumnPlans
+              .map((plan) =>
+                plan.labels
+                  .map((label, index) => `<th class="stock-col" style="width: ${plan.widths[index]}px;">${label}</th>`)
+                  .join("")
               )
               .join("")}
           </tr>
@@ -572,6 +599,80 @@ function renderReportTable(rows, branches, reportsByBranch, showDifference = fal
       </table>
     </div>
   `;
+}
+
+function renderMobileReportCards(rows, branches, reportsByBranch, showDifference = false) {
+  if (!branches.length) {
+    return renderEmpty("No branch selected.");
+  }
+
+  return `
+    <div class="mobile-report-cards" aria-label="Mobile report cards">
+      ${rows
+        .map((item, index) => {
+          const branchRows = branches
+            .map((branch) => {
+              const line = reportsByBranch.get(branch.id)?.lines?.[item.id] || null;
+              const difference = getStockDifference(line);
+              return `
+                <div class="mobile-branch-row ${showDifference ? "has-diff" : ""}">
+                  <strong>${escapeHTML(branch.name)}</strong>
+                  <span><em>system</em>${escapeHTML(formatQty(line?.systemStock)) || "-"}</span>
+                  <span><em>phy</em>${escapeHTML(formatQty(line?.physicalStock)) || "-"}</span>
+                  ${
+                    showDifference
+                      ? `<span class="${differenceClass(difference)}"><em>different</em>${escapeHTML(formatDifference(difference)) || "-"}</span>`
+                      : ""
+                  }
+                </div>
+              `;
+            })
+            .join("");
+
+          return `
+            <article class="mobile-report-card">
+              <div class="mobile-report-card-head">
+                <span class="pill">No ${index + 1}</span>
+                <strong>${escapeHTML(item.itemNo)}</strong>
+              </div>
+              <p>${escapeHTML(item.description)}</p>
+              <div class="mobile-branch-list">
+                ${branchRows}
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function getReportLeftColumnWidths(rows) {
+  const longestItemNo = Math.max(8, ...rows.map((row) => String(row.itemNo || "").length));
+  const longestDescription = Math.max(24, ...rows.map((row) => String(row.description || "").length));
+
+  return {
+    no: 58,
+    item: clamp(Math.ceil(longestItemNo * 8 + 30), 132, 180),
+    description: clamp(Math.ceil(longestDescription * 7 + 34), 320, 520)
+  };
+}
+
+function getReportBranchColumnPlan(branchName, showDifference) {
+  const labels = showDifference ? ["system", "phy", "different"] : ["system", "phy"];
+  const headerWidth = estimateTextWidth(branchName, 8) + 28;
+  const headerShareWidth = Math.ceil(headerWidth / labels.length);
+  const baseWidths = labels.map((label) => {
+    const labelWidth = estimateTextWidth(label, 8) + 24;
+    const minimum = label === "different" ? 112 : 76;
+    return clamp(Math.max(labelWidth, headerShareWidth, minimum), minimum, 190);
+  });
+
+  return {
+    labels,
+    widths: baseWidths,
+    totalWidth: baseWidths.reduce((total, width) => total + width, 0)
+  };
 }
 
 function renderAdmin() {
@@ -914,6 +1015,7 @@ async function handleBranchLogin(form) {
     branchId: branch.id,
     branchName: branch.name
   };
+  state.ui.reportBranch = branch.id;
   saveSession();
   state.activeTab = "entry";
   await loadEntryReport();
@@ -927,6 +1029,7 @@ async function handleAdminLogin(form) {
   }
 
   state.session = { role: "admin" };
+  state.ui.reportBranch = "all";
   saveSession();
   state.activeTab = "reports";
   await loadReportData();
@@ -935,6 +1038,7 @@ async function handleAdminLogin(form) {
 
 async function loginGuest() {
   state.session = { role: "guest" };
+  state.ui.reportBranch = "all";
   saveSession();
   state.activeTab = "reports";
   await loadReportData();
@@ -958,13 +1062,20 @@ async function handleEntrySubmit(form) {
     const item = entryItems.find((candidate) => candidate.id === itemId);
     if (!item) return;
 
+    const systemStock = readRequiredQuantity(row.querySelector('[data-qty="system"]'), item, "System stock", {
+      allowNegative: true
+    });
+    const physicalStock = readRequiredQuantity(row.querySelector('[data-qty="physical"]'), item, "Physical stock", {
+      allowNegative: false
+    });
+
     lines[itemId] = {
       itemId,
       itemNo: item.itemNo,
       description: item.description,
       order: item.order,
-      systemStock: cleanQty(row.querySelector('[data-qty="system"]')?.value),
-      physicalStock: cleanQty(row.querySelector('[data-qty="physical"]')?.value)
+      systemStock,
+      physicalStock
     };
   });
 
@@ -1343,8 +1454,10 @@ function restoreSession() {
         branchId: branch.id,
         branchName: branch.name
       };
+      state.ui.reportBranch = branch.id;
     } else if (session.role === "admin" || session.role === "guest") {
       state.session = session;
+      state.ui.reportBranch = "all";
     }
   } catch (error) {
     console.warn("Session restore failed.", error);
@@ -1357,6 +1470,7 @@ function logout() {
   state.activeTab = "reports";
   state.entryReport = null;
   state.reportBundle = null;
+  state.ui.reportBranch = "all";
   render();
 }
 
@@ -1391,6 +1505,14 @@ function maxOrder(records) {
   }, 0);
 }
 
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function estimateTextWidth(value, averageCharWidth) {
+  return String(value || "").length * averageCharWidth;
+}
+
 function sortByOrderThenName(a, b) {
   const orderA = Number(a.order || 999999);
   const orderB = Number(b.order || 999999);
@@ -1400,12 +1522,22 @@ function sortByOrderThenName(a, b) {
   return String(nameA).localeCompare(String(nameB));
 }
 
-function cleanQty(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
+function readRequiredQuantity(input, item, label, options = {}) {
+  const valueText = String(input?.value ?? "").trim();
+  if (valueText === "") {
+    throw new Error(`${label} is required for ${item.itemNo} - ${item.description}. Fill 0 if there is no stock.`);
+  }
 
-  const number = Number(text);
-  return Number.isFinite(number) ? number : "";
+  const value = Number(valueText);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} must be a valid number for ${item.itemNo} - ${item.description}.`);
+  }
+
+  if (!options.allowNegative && value < 0) {
+    throw new Error(`${label} cannot be negative for ${item.itemNo} - ${item.description}.`);
+  }
+
+  return value;
 }
 
 function formatQty(value) {
