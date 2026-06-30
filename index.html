@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Daily Check Stock</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">DCS</span>
+        <div>
+          <h1>Daily Check Stock</h1>
+          <p>Branch stock entry and daily report</p>
+        </div>
+      </div>
+      <div id="sessionBar" class="session-bar"></div>
+    </header>
+
+    <main id="app" class="app-shell">
+      <section class="panel loading-panel">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Loading daily stock app...</p>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
