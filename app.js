@@ -488,6 +488,9 @@ function renderReports() {
               }
             </div>
           </div>
+          <div class="report-footer-actions">
+            <button class="btn secondary" type="button" data-action="export-report">Export Report CSV</button>
+          </div>
         </div>
       </section>
     </section>
@@ -904,6 +907,8 @@ async function handleClick(event) {
       await handleDeleteItem(target.dataset.itemId);
     } else if (action === "print-report") {
       window.print();
+    } else if (action === "export-report") {
+      await handleExportReport();
     }
   } catch (error) {
     console.error(error);
@@ -1267,6 +1272,37 @@ async function handleCleanup(form) {
   showToast(`Deleted ${docs.length} report document(s) for ${year}.`, "success");
 }
 
+async function handleExportReport() {
+  if (!state.reportBundle || state.reportBundle.date !== state.ui.reportDate) {
+    await loadReportData();
+  }
+
+  const activeBranches = getActiveBranches();
+  const reportsByBranch = new Map((state.reportBundle?.reports || []).map((report) => [report.branchId, report]));
+  const branchFilter = state.ui.reportBranch;
+  const visibleBranches =
+    branchFilter === "all"
+      ? activeBranches
+      : activeBranches.filter((branch) => branch.id === branchFilter);
+  const reportRows = buildReportRows(visibleBranches, reportsByBranch);
+
+  if (!visibleBranches.length) {
+    throw new Error("No branch selected for export.");
+  }
+
+  if (!reportRows.length) {
+    throw new Error("No report rows available for export.");
+  }
+
+  const showDifference = branchFilter !== "all";
+  const csv = buildReportCSV(reportRows, visibleBranches, reportsByBranch, showDifference);
+  const branchName = branchFilter === "all" ? "ALL_BRANCH" : visibleBranches[0]?.name || branchFilter;
+  const filename = `daily-check-stock-${state.ui.reportDate}-${safeFilenamePart(branchName)}.csv`;
+
+  downloadTextFile(filename, `\ufeff${csv}`, "text/csv;charset=utf-8");
+  showToast("CSV exported.", "success");
+}
+
 async function switchTab(tab) {
   if (!getTabs().some((candidate) => candidate.id === tab)) {
     return;
@@ -1391,6 +1427,32 @@ function buildReportRows(branches, reportsByBranch) {
   });
 
   return Array.from(rows.values()).sort(sortByOrderThenName);
+}
+
+function buildReportCSV(rows, branches, reportsByBranch, showDifference) {
+  const header = ["No", "Item No.", "Description"];
+  branches.forEach((branch) => {
+    header.push(`${branch.name} system`, `${branch.name} phy`);
+    if (showDifference) {
+      header.push(`${branch.name} different`, `${branch.name} status`);
+    }
+  });
+
+  const csvRows = [header];
+  rows.forEach((item, index) => {
+    const row = [index + 1, item.itemNo, item.description];
+    branches.forEach((branch) => {
+      const line = reportsByBranch.get(branch.id)?.lines?.[item.id] || null;
+      const difference = getStockDifference(line);
+      row.push(formatQty(line?.systemStock), formatQty(line?.physicalStock));
+      if (showDifference) {
+        row.push(formatCSVNullable(difference), difference === "" ? "" : difference === 0 ? "normal" : "abnormal");
+      }
+    });
+    csvRows.push(row);
+  });
+
+  return csvRows.map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
 
 function getActiveBranches() {
@@ -1564,6 +1626,11 @@ function formatDifference(value) {
   return value === 0 ? "0 normal" : `${value} abnormal`;
 }
 
+function formatCSVNullable(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return String(value);
+}
+
 function differenceClass(value) {
   if (value === "") return "";
   return value === 0 ? "diff-ok" : "diff-bad";
@@ -1581,6 +1648,33 @@ function labelRole(role) {
   if (role === "admin") return "Admin";
   if (role === "branch") return "Branch user";
   return "Guest view";
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function safeFilenamePart(value) {
+  const cleaned = normalizeName(value)
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return cleaned || "REPORT";
+}
+
+function downloadTextFile(filename, text, mimeType) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function showToast(message, type = "info") {

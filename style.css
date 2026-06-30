@@ -464,6 +464,12 @@ tbody tr:hover td {
   gap: 16px;
 }
 
+.report-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .status-ok {
   color: var(--success);
   font-weight: 900;
@@ -855,6 +861,15 @@ tbody tr:hover td {
 
   .mobile-branch-row em {
     align-self: center;
+  }
+
+  .report-footer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-footer-actions .btn {
+    width: 100%;
   }
 }
 
